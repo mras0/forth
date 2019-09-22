@@ -15,5 +15,10 @@ directory run:
     cmake ..
     cmake --build .
 
+To cross-compile for ARM (for debian install `gcc-arm-linux-gnueabihf`
+and `libc6-dev-armhf-cross`):
+
+    cmake -DCMAKE_TOOLCHAIN_FILE:PATH=../toolchain-arm.cmake ..
+
 The interpreter(s) read from standard input by default, but a filename
 can be supplied on the command line.
