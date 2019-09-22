@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.7)
-project(forth C)
+project(forth C ASM)
 
 if (MSVC)
     set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "Supported build configurations" FORCE)
@@ -14,7 +14,7 @@ endif()
 add_executable(cforth cforth.c)
 
 if (${CMAKE_SYSTEM_PROCESSOR} STREQUAL arm)
-    message(STATUS "No ASM version for ${CMAKE_SYSTEM_PROCESSOR} yet")
+    add_executable(forth asmdriver.c forth-arm.S)
 else()
     # Assume x86/x64
     find_program(NASM_EXE nasm)

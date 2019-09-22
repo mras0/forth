@@ -63,9 +63,15 @@ void C_Close(intptr_t fd)
     close((int)fd);
 }
 
+static const char* Prg = "42 EMIT";
 intptr_t C_Read(intptr_t fd, void* buf, unsigned len)
 {
-    return read((int)fd, buf, len);
+    (void)fd; (void)len;
+    *(char*)buf = *Prg;
+    if (!*Prg) return 0;
+    ++Prg;
+    return 1;
+//    return read((int)fd, buf, len);
 }
 
 intptr_t C_Write(intptr_t fd, const void* buf, unsigned len)
@@ -103,13 +109,15 @@ SkipSpaces:
     }
     WordBuffer[WordLen] = '\0'; // NUL termination is only for C's sake
     WordBuffer[F_LENMASK+1] = (uint8_t)WordLen;
-    //printf("Read word: \"%s\"\n", WordBuffer);
+    printf("Read word: \"%s\"\n", WordBuffer);
 }
 
 WordHeader* C_FindWord(uint8_t WordLen, const char* Name)
 {
+    printf("Finding word \"%*.*s\"\n", WordLen, WordLen, Name);
     for (WordHeader* WH = Latest; WH; WH = WH->Prev) {
         if ((WH->LengthAndFlags & (F_LENMASK|F_HIDDEN)) == WordLen && !memcmp(Name, WH->Name, WordLen)) {
+            printf("Found word \"%*.*s\" -> %p\n", WordLen, WordLen, Name, (void*)WH);
             return WH;
         }
     }
@@ -149,6 +157,7 @@ intptr_t C_ConvertNumber(uint8_t WordLen, const char* Name)
         }
         Res = Res*Base + dig;
     }
+    printf("Converted \"%*.*s\" to %d\n", WordLen, WordLen, Name, (int)(neg ? -Res : Res));
     return neg ? -Res : Res;
 Error:
     printf("Invalid number \"%*.*s\"\n", WordLen, WordLen, Name);
@@ -162,7 +171,7 @@ void C_Emit(uint8_t ch)
 
 int main(int argc, char* argv[])
 {
-#if 0
+#if 1
     OutputFile = StdoutFile = STDOUT_FILENO;
     if (argc > 1) {
         InputFile = C_Open(argv[1], O_RDONLY);
@@ -174,12 +183,12 @@ int main(int argc, char* argv[])
         InputFile = STDIN_FILENO;
     }
 #endif
-    int retval = ForthMain(argc, argv);
-    printf("Interpreter exited with code %d State=%d\n", retval, (int)State);
-#if 0
+#if 1
     for (WordHeader* WH = Latest; WH; WH = WH->Prev) {
-        printf("%p: %*.*s %02X\n", WH, F_LENMASK, WH->LengthAndFlags & F_LENMASK, WH->Name, WH->LengthAndFlags & ~F_LENMASK);
+        printf("%p: %*.*s %02X\n", (void*)WH, F_LENMASK, WH->LengthAndFlags & F_LENMASK, WH->Name, WH->LengthAndFlags & ~F_LENMASK);
     }
 #endif
+    int retval = ForthMain(argc, argv);
+    printf("Interpreter exited with code %d (%08X) State=%d\n", retval, retval, (int)State);
     return 0;
 }
