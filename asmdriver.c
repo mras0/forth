@@ -63,17 +63,9 @@ void C_Close(intptr_t fd)
     close((int)fd);
 }
 
-//static const char* Prg = "42 33 10 EMIT EMIT EMIT";
-static const char* Prg = ": STAR 42 EMIT ; STAR";
-
 intptr_t C_Read(intptr_t fd, void* buf, unsigned len)
 {
-    (void)fd; (void)len;
-    *(char*)buf = *Prg;
-    if (!*Prg) return 0;
-    ++Prg;
-    return 1;
-//    return read((int)fd, buf, len);
+    return read((int)fd, buf, len);
 }
 
 intptr_t C_Write(intptr_t fd, const void* buf, unsigned len)
@@ -81,8 +73,13 @@ intptr_t C_Write(intptr_t fd, const void* buf, unsigned len)
     return write((int)fd, buf, len);
 }
 
+static const char* InputText;
+
 uint8_t C_ReadKey(void)
 {
+    if (InputText) {
+        return *InputText ? *InputText++ : 0;
+    }
     uint8_t ch;
     if (C_Read(InputFile, &ch, 1) != 1) {
         return 0;
@@ -116,10 +113,10 @@ SkipSpaces:
 
 WordHeader* C_FindWord(uint8_t WordLen, const char* Name)
 {
-    printf("Finding word \"%*.*s\"\n", WordLen, WordLen, Name);
+    //printf("Finding word \"%*.*s\"\n", WordLen, WordLen, Name);
     for (WordHeader* WH = Latest; WH; WH = WH->Prev) {
         if ((WH->LengthAndFlags & (F_LENMASK|F_HIDDEN)) == WordLen && !memcmp(Name, WH->Name, WordLen)) {
-            printf("Found word \"%*.*s\" -> %p\n", WordLen, WordLen, Name, (void*)WH);
+            //printf("Found word \"%*.*s\" -> %p\n", WordLen, WordLen, Name, (void*)WH);
             return WH;
         }
     }
@@ -168,6 +165,7 @@ Error:
 
 void C_Emit(uint8_t ch)
 {
+    printf("Emitting %c (%02X)\n", ch, ch);
     C_Write(STDOUT_FILENO, &ch, 1);
 }
 
@@ -176,6 +174,29 @@ void C_PrintWords(void)
     for (WordHeader* WH = Latest; WH; WH = WH->Prev) {
         printf("%p: %*.*s %02X\n", (void*)WH, F_LENMASK, WH->LengthAndFlags & F_LENMASK, WH->Name, WH->LengthAndFlags & ~F_LENMASK);
     }
+}
+
+
+#if 0
+extern int QDiv32(int a, int b);
+extern int RDiv32(int a, int b);
+void testdiv(int a, int b)
+{
+    printf("%+4d / %+4d = %+4d (mod %+4d) ----- CHECK: ", a, b, QDiv32(a, b), RDiv32(a, b));
+    printf("%+4d / %+4d = %+4d (mod %+4d)\n", a, b, a / b, a % b);
+}
+void testdivs(void)
+{
+    testdiv(-67, 13);
+    testdiv(-67, -13);
+    testdiv(67, 13);
+    testdiv(67, -13);
+}
+#endif
+
+void C_Debug(intptr_t val)
+{
+    printf("Debug: %d (%08X)\n", (int)val, (unsigned)val);
 }
 
 int main(int argc, char* argv[])
@@ -192,8 +213,8 @@ int main(int argc, char* argv[])
         InputFile = STDIN_FILENO;
     }
 #endif
+    C_PrintWords();
     int retval = ForthMain(argc, argv);
     printf("Interpreter exited with code %d (%08X) State=%d\n", retval, retval, (int)State);
-    C_PrintWords();
     return 0;
 }

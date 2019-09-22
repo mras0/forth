@@ -20,9 +20,11 @@
         .globl ForthMain
 
         .extern C_ReadWord
+        .extern C_ReadKey
         .extern C_FindWord
         .extern C_ConvertNumber
         .extern C_Emit
+        .extern C_Debug
 
         .text
 
@@ -128,11 +130,67 @@ DoComma:
         str r2, [r1]
         bx lr
 
+        .thumb_func
+UDiv32:
+        mov r2, #0              // Quotient
+        mov r3, #0              // Remainder
+        .set mask, 1<<31
+        .rept 32
+        add r3, r3, r3          // R <<= 1
+        tst r0, #mask           // Numerator & Mask
+        it ne
+        orrne r3, r3, #1        // if (Numerator & Mask) Rem |= 1
+        cmp r3, r1              // Rem >= Den
+        itt hs
+        subhs r3, r3, r1        // Rem -= Den
+        orrhs r2, r2, #mask     // Quot |= Mask
+        .set mask, mask>>1
+        .endr
+        mov r0, r2
+        mov r1, r3
+        bx lr
+
+        .thumb_func
+Div32:
+        cmp r0, #0
+        blt 1f
+        cmp r1, #0
+        blt 3f
+        b UDiv32
+1: // N < 0
+        cmp r1, #0
+        bge 2f
+   // N < 0, D < 0
+        rsb r0, r0, #0
+        rsb r1, r1, #0
+        push {lr}
+        bl UDiv32
+        rsb r1, r1, #0
+        pop {pc}
+2: // N < 0, D >= 0
+        rsb r0, r0, #0
+        push {lr}
+        bl UDiv32
+        rsb r0, r0, #0
+        rsb r1, r1, #0
+        pop {pc}
+3: // N >= 0, D < 0
+        rsb r1, r1, #0
+        push {lr}
+        bl UDiv32
+        rsb r0, r0, #0
+        pop {pc}
+
 NATIVE RETC
         // Leave r0 untouched
         ldr r1, =OldSP
         ldr sp, [r1]
         pop {r4-r8, pc}
+
+NATIVE DEBUG
+        ldr r0, [sp]
+        bl C_Debug
+        NEXT
 
 NATIVE EXIT
         ldr r5, [r4], #4
@@ -155,7 +213,16 @@ NATIVE LIT
         push {r0}
         NEXT
 
-NATIVE COMMA, ','
+;NATIVE LITSTRING
+        
+
+NATIVE CHAR
+        bl ReadWord
+        ldrb r0, [r1]
+        push {r0}
+        NEXT
+
+NATIVE COMMA, ","
         pop {r0}
         bl DoComma
         NEXT
@@ -163,6 +230,11 @@ NATIVE COMMA, ','
 NATIVE EMIT
         pop {r0}
         bl Emit
+        NEXT
+
+NATIVE KEY
+        bl C_ReadKey
+        push {r0}
         NEXT
 
 NATIVE GETWORD, "WORD"
@@ -195,6 +267,18 @@ NATIVE CREATE
         pop {r4-r5}
         NEXT
 
+NATIVE FIND
+        pop {r0,r1}
+        bl FindWord
+        push {r0}
+        NEXT
+
+NATIVE CFA, ">CFA"
+        pop {r0}
+        bl WordCFA
+        push {r0}
+        NEXT
+
 NATIVE HIDDEN
         pop {r0}
         add r0, r0, #4
@@ -224,11 +308,148 @@ NATIVE RBRACKET, "]"
         str r1, [r0]
         NEXT
 
-NATIVE FETCH, "@"
+NATIVE TICK, "\x27"
+        ldr r0, [r5], #4
+        push {r0}
+        NEXT
+
+NATIVE FETCH, "\@"
         pop {r0}
         ldr r0, [r0]
         push {r0}
         NEXT
+
+NATIVE STORE, "!"
+        pop {r0,r1}
+        str r0, [r1]
+        NEXT
+
+NATIVE CFETCH, "C@"
+        pop {r0}
+        ldrb r0, [r0]
+        push {r0}
+        NEXT
+
+NATIVE CSTORE, "C!"
+        pop {r0,r1}
+        strb r0, [r1]
+        NEXT
+
+NATIVE DSPFETCH, "DSP@"
+        mov r0, sp
+        push {r0}
+        NEXT
+
+NATIVE DSPSTORE, "DSP!"
+        pop {r0}
+        mov sp, r0
+        NEXT
+
+NATIVE RSPFETCH, "RSP@"
+        push {r4}
+        NEXT
+
+NATIVE RSPSTORE, "RSP!"
+        pop {r4}
+        NEXT
+
+NATIVE TOR, ">R"
+        pop {r0}
+        str r0, [r4, #-4]!
+        NEXT
+
+NATIVE FROMR, "R>"
+        ldr r0, [r4], #4
+        push {r0}
+        NEXT
+
+NATIVE SWAP
+        pop {r0-r1}
+        mov r2, r0
+        push {r1-r2}
+        NEXT
+
+NATIVE ROT
+        pop {r0-r2}
+        push {r1}
+        push {r2}
+        push {r0}
+        NEXT
+
+NATIVE ADD, "+"
+        pop {r0,r1}
+        add r0, r0, r1
+        push {r0}
+        NEXT
+
+NATIVE SUB, "-"
+        pop {r0,r1}
+        sub r0, r0, r1
+        push {r0}
+        NEXT
+
+NATIVE MUL, "*"
+        pop {r0,r1}
+        mul r0, r0, r1
+        push {r0}
+        NEXT
+
+NATIVE DIVMOD, "/MOD"
+        pop {r1}
+        pop {r0}
+        bl Div32
+        push {r0,r1}
+        NEXT
+
+NATIVE UDIVMOD, "U/MOD"
+        pop {r1}
+        pop {r0}
+        bl UDiv32
+        push {r0,r1}
+        NEXT
+
+NATIVE BAND, "AND"
+        pop {r0,r1}
+        and r0, r0, r1
+        push {r0}
+        NEXT
+
+NATIVE BOR, "OR"
+        pop {r0,r1}
+        orr r0, r0, r1
+        push {r0}
+        NEXT
+
+NATIVE BXOR, "XOR"
+        pop {r0,r1}
+        eor r0, r0, r1
+        push {r0}
+        NEXT
+
+NATIVE INVERT
+        ldr r0, [sp]
+        eor r0, r0, #-1
+        str r0, [sp]
+        NEXT
+
+        .macro NATIVECOMPARE, flags, name
+NATIVE CMP\flags, "\name"
+        pop {r0,r1}
+        mov r2, #-1
+        cmp r0, r1
+        b\flags 1f
+        mov r2, #0
+1:
+        push {r2}
+        NEXT
+        .endm
+
+NATIVECOMPARE EQ, "\="
+NATIVECOMPARE NE, "<>"
+NATIVECOMPARE LT, "<"
+NATIVECOMPARE LE, "<="
+NATIVECOMPARE GE, ">="
+NATIVECOMPARE GT, ">"
 
 NATIVE INTERPRET
 .LInterpreterLoop:
@@ -281,7 +502,7 @@ WORD_HEADER \label, "\name", \flags
         .endm
 
 DEFWORD QUIT
-        // .long LIT, R0, RSPSTORE
+        .long LIT, R0, RSPSTORE
         .long INTERPRET
         .long BRANCH, -8
 
@@ -295,6 +516,26 @@ DEFWORD SEMICOLON, "\;", F_IMMED
         .long LIT, EXIT, COMMA
         .long LIT, Latest, FETCH, HIDDEN
         .long LBRACKET, EXIT
+
+        .macro DEFVAR label, name, val
+NATIVE \label, "\name"
+        ldr r0, =\val
+        push {r0}
+        NEXT
+        .endm
+
+        .macro DEFCONST label, name, val
+NATIVE \label, "\name"
+        mov r0, \val
+        push {r0}
+        NEXT
+        .endm
+
+DEFVAR   VAR_LATEST      , "LATEST"    , Latest
+DEFVAR   VAR_STATE       , "STATE"     , State
+DEFVAR   VAR_HERE        , "HERE"      , Here
+DEFVAR   VAR_BASE        , "BASE"      , Base
+DEFCONST CONST_CELL_SIZE , "CELL-SIZE" , 4
 
         .data
 
