@@ -63,7 +63,9 @@ void C_Close(intptr_t fd)
     close((int)fd);
 }
 
-static const char* Prg = "42 EMIT";
+//static const char* Prg = "42 33 10 EMIT EMIT EMIT";
+static const char* Prg = ": STAR 42 EMIT ; STAR";
+
 intptr_t C_Read(intptr_t fd, void* buf, unsigned len)
 {
     (void)fd; (void)len;
@@ -157,7 +159,7 @@ intptr_t C_ConvertNumber(uint8_t WordLen, const char* Name)
         }
         Res = Res*Base + dig;
     }
-    printf("Converted \"%*.*s\" to %d\n", WordLen, WordLen, Name, (int)(neg ? -Res : Res));
+    //printf("Converted \"%*.*s\" to %d\n", WordLen, WordLen, Name, (int)(neg ? -Res : Res));
     return neg ? -Res : Res;
 Error:
     printf("Invalid number \"%*.*s\"\n", WordLen, WordLen, Name);
@@ -167,6 +169,13 @@ Error:
 void C_Emit(uint8_t ch)
 {
     C_Write(STDOUT_FILENO, &ch, 1);
+}
+
+void C_PrintWords(void)
+{
+    for (WordHeader* WH = Latest; WH; WH = WH->Prev) {
+        printf("%p: %*.*s %02X\n", (void*)WH, F_LENMASK, WH->LengthAndFlags & F_LENMASK, WH->Name, WH->LengthAndFlags & ~F_LENMASK);
+    }
 }
 
 int main(int argc, char* argv[])
@@ -183,12 +192,8 @@ int main(int argc, char* argv[])
         InputFile = STDIN_FILENO;
     }
 #endif
-#if 1
-    for (WordHeader* WH = Latest; WH; WH = WH->Prev) {
-        printf("%p: %*.*s %02X\n", (void*)WH, F_LENMASK, WH->LengthAndFlags & F_LENMASK, WH->Name, WH->LengthAndFlags & ~F_LENMASK);
-    }
-#endif
     int retval = ForthMain(argc, argv);
     printf("Interpreter exited with code %d (%08X) State=%d\n", retval, retval, (int)State);
+    C_PrintWords();
     return 0;
 }
