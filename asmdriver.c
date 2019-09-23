@@ -55,21 +55,25 @@ intptr_t C_Open(const char* Filename, int mode)
         printf("TODO: open(%s, %d)\n", Filename, mode);
         exit(1);
     }
+//    printf("C_Open(%s, %d)\n", Filename, mode);
     return open(Filename, mode);
 }
 
 void C_Close(intptr_t fd)
 {
+//    printf("C_Close(%d)\n", (int)fd);
     close((int)fd);
 }
 
 intptr_t C_Read(intptr_t fd, void* buf, unsigned len)
 {
+//    printf("C_Read(%d, %p, %u)\n", (int)fd, buf, len);
     return read((int)fd, buf, len);
 }
 
 intptr_t C_Write(intptr_t fd, const void* buf, unsigned len)
 {
+//    printf("C_Write(%d, %p, %u)\n", (int)fd, buf, len);
     return write((int)fd, buf, len);
 }
 
@@ -108,7 +112,7 @@ SkipSpaces:
     }
     WordBuffer[WordLen] = '\0'; // NUL termination is only for C's sake
     WordBuffer[F_LENMASK+1] = (uint8_t)WordLen;
-    printf("Read word: \"%s\"\n", WordBuffer);
+    //printf("Read word: \"%s\"\n", WordBuffer);
 }
 
 WordHeader* C_FindWord(uint8_t WordLen, const char* Name)
@@ -216,6 +220,6 @@ int main(int argc, char* argv[])
 #endif
     int retval = ForthMain(argc, argv);
     printf("Interpreter exited with code %d (%08X) State=%d\n", retval, retval, (int)State);
-    C_PrintWords();
+//    C_PrintWords();
     return 0;
 }

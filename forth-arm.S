@@ -25,6 +25,10 @@
         .extern C_ConvertNumber
         .extern C_Emit
         .extern C_Debug
+        .extern C_Open
+        .extern C_Close
+        .extern C_Read
+        .extern C_Write
 
         .text
 
@@ -241,6 +245,34 @@ NATIVE CHAR
 NATIVE COMMA, ","
         pop {r0}
         bl DoComma
+        NEXT
+
+NATIVE OPENFILE, "OPEN-FILE"
+        pop {r1}
+        pop {r0}
+        bl C_Open
+        push {r0}
+        NEXT
+
+NATIVE CLOSEFILE, "CLOSE-FILE"
+        pop {r0}
+        bl C_Close
+        NEXT
+
+NATIVE READFILE, "READ-FILE"
+        pop {r0}
+        pop {r2}
+        pop {r1}
+        bl C_Read
+        push {r0}
+        NEXT
+
+NATIVE WRITEFILE, "WRITE-FILE"
+        pop {r0}
+        pop {r2}
+        pop {r1}
+        bl C_Write
+        push {r0}
         NEXT
 
 NATIVE EMIT
@@ -563,6 +595,8 @@ DEFCONST CONST_O_RDONLY  , "O_RDONLY"  , O_RDONLY
 DEFCONST CONST_O_WRONLY  , "O_WRONLY"  , O_WRONLY
 DEFCONST CONST_O_RDWR    , "O_RDWR"    , O_RDWR
 DEFCONST CONST_O_CREAT   , "O_CREAT"   , O_CREAT
+DEFCONST CONST_STDIN     , "STDIN"     , 0 // XXX: Other forths have seperate StdinFile
+DEFCONST CONST_STDOUT    , "STDOUT"    , 1 // XXX: Same
 
 // TODO FIXME
 DEFCONST HACK_DSP        , "DSP"       , 0
