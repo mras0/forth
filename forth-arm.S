@@ -4,35 +4,12 @@
 //   R5: Instruction Pointer
 //   R0: LastCFA
 
-
         .syntax unified
         .thumb
 
-        .globl Latest
-        .globl State
-        .globl Here
-        .globl Base
-        .globl WordBuffer
-        .globl InputFile
-        .globl OutputFile
-        .globl StdinFile
-        .globl StdoutFile
-        .globl ForthMain
-
-        .extern C_ReadWord
-        .extern C_ReadKey
-        .extern C_FindWord
-        .extern C_ConvertNumber
-        .extern C_Emit
-        .extern C_Debug
-        .extern C_Open
-        .extern C_Close
-        .extern C_Read
-        .extern C_Write
-
         .text
 
-        .set NUM_CELLS,         8192 // 4096
+        .set NUM_CELLS,         4096
         .set RSIZE,             128
         .set S0,                (Cells + NUM_CELLS*4)
         .set R0,                (Cells + RSIZE*4)
@@ -82,11 +59,29 @@ WORD_HEADER \label, "\name", \flags
         bx r1
         .endm
 
+#include "sys-linux-arm.S"
+
         .thumb_func
-ForthMain:
-        push {r4-r8, lr}
-        ldr r0, =OldSP
-        str sp, [r0]
+StartInterpreter:
+        ldr r0, =StdoutFile
+        ldr r0, [r0]
+        ldr r1, =OutputFile
+        str r0, [r1]
+
+        ldr r0, =ArgV
+        ldr r0, [r0]
+        ldr r0, [r0, #4]
+        cmp r0, #0
+        beq 1f
+        mov r1, #O_RDONLY
+        bl NativeOpen
+        b 2f
+1:
+        ldr r0, =StdinFile
+        ldr r0, [r0]
+2:
+        ldr r1, =InputFile
+        str r0, [r1]
 
         ldr sp, =S0
         ldr r4, =R0
@@ -96,19 +91,91 @@ ForthMain:
         .long QUIT
 
         .thumb_func
-ReadWord:
+ReadKey:
         push {lr}
-        blx C_ReadWord
-        ldr r2, =WordBuffer+F_LENMASK+1
-        ldrb r0, [r2]
-        ldr r1, =WordBuffer
+        sub sp, sp, #4
+        ldr r0, =InputFile
+        ldr r0, [r0]
+        mov r1, sp
+        mov r2, #1
+        bl NativeRead
+        cmp r0, #1
+        beq 1f
+        mov r0, #0
+        b 2f
+1:
+        ldrb r0, [sp]
+2:
+        add sp, sp, #4
         pop {pc}
 
         .thumb_func
-FindWord:
-        push {lr}
-        blx C_FindWord
-        pop {pc}
+ReadWord:
+        push {r4,lr}
+        ldr r4, =WordBuffer
+1:
+        bl ReadKey
+        cmp r0, #0
+        beq 5f
+        cmp r0, #' '
+        bls 1b
+        cmp r0, #'\\'
+        bne 3f
+2:
+        bl ReadKey
+        cmp r0, #0
+        beq 5f
+        cmp r0, #10
+        bne 2b
+        b 1b
+3:
+        cmp r0, #'a'
+        blo 4f
+        cmp r0, #'z'
+        bhi 4f
+        and r0, r0, #0xdf
+4:
+        strb r0, [r4], #1
+        bl ReadKey
+        cmp r0, #' '
+        bhi 3b
+5:
+        mov r0, #0
+        strb r0, [r4] // NUL-terminate for ease of debugging
+        ldr r1, =WordBuffer
+        sub r0, r4, r1
+        pop {r4,pc}
+        bx lr
+
+        .thumb_func
+FindWord: // r0 = WordLen, r1 = Name
+        push {r4-r6}
+        ldr r2, =Latest
+        ldr r2, [r2]
+1:
+        cmp r2, #0
+        beq 4f
+        ldrb r3, [r2, #4]
+        and r3, r3, #F_LENMASK|F_HIDDEN
+        cmp r3, r0
+        bne 3f
+        mov r3, #0
+        add r6, r2, #5
+2:
+        cmp r3, r0
+        beq 4f
+        ldrb r4, [r6, r3]
+        ldrb r5, [r1, r3]
+        cmp r4, r5
+        bne 3f
+        add r3, r3, #1
+        b 2b
+3:      ldr r2, [r2]
+        b 1b
+4:
+        mov r0, r2
+        pop {r4-r6}
+        bx lr
 
         .thumb_func
 WordCFA:
@@ -120,16 +187,83 @@ WordCFA:
         bx lr
 
         .thumb_func
+// In:  r0 = length, r1 = buffer
+// Out: r0 = result, r1 = number of unparsed characters
 ConvertNumber:
-        push {lr}
-        blx C_ConvertNumber
-        pop {pc}
+        cmp r0, #0
+        bne 20f
+10:
+        mov r1, #-1
+        bx lr
+20:
+        ldrb r2, [r1], #1 // r2 = sign
+        mov r3, r2
+        cmp r2, #'-'
+        bne 30f
+        subs r0, r0, #1
+        beq 10b
+        ldrb r3, [r1], #1
+30:
+        // r3 = current char
+        push {r4-r5}
+        mov r4, #0 // r4 = result
+        ldr r5, =Base
+        ldr r5, [r5] // r5 = base
+40:
+        mul r4, r4, r5
+        cmp r3, #'0'
+        blo 60f
+        cmp r3, #'9'
+        bhi 45f
+        sub r3, r3, #'0'
+        b 50f
+45:
+        cmp r3, #'A'
+        blo 60f
+        cmp r3, #'Z'
+        bhi 60f
+        sub r3, r3, #'A'-10
+50:
+        cmp r3, r5
+        bhs 60f
+        add r4, r4, r3
+        subs r0, r0, #1
+        beq 60f
+        ldrb r3, [r1], #1
+        b 40b
+60:
+        cmp r2, #'-'
+        bne 70f
+        rsb r4, r4, #0
+70:
+        mov r1, r0
+        mov r0, r4
+        pop {r4-r5}
+        bx lr
+
 
         .thumb_func
 Emit:
-        push {lr}
-        blx C_Emit
-        pop {pc}
+        push {r0,lr}
+        ldr r0, =OutputFile
+        ldr r0, [r0]
+        mov r1, sp
+        mov r2, #1
+        bl NativeWrite
+        pop {r0,pc}
+
+        .thumb_func
+EmitZStr:
+        push {r4,lr}
+        mov r4, r0
+1:
+        ldrb r0, [r4], #1
+        cmp r0, #0
+        beq 2f
+        bl Emit
+        b 1b
+2:
+        pop {r4,pc}
 
         .thumb_func
 DoComma:
@@ -190,17 +324,6 @@ Div32:
         rsb r0, r0, #0
         pop {pc}
 
-NATIVE RETC
-        // Leave r0 untouched
-        ldr r1, =OldSP
-        ldr sp, [r1]
-        pop {r4-r8, pc}
-
-NATIVE DEBUG
-        ldr r0, [sp]
-        bl C_Debug
-        NEXT
-
 NATIVE EXIT
         ldr r5, [r4], #4
         NEXT
@@ -250,20 +373,20 @@ NATIVE COMMA, ","
 NATIVE OPENFILE, "OPEN-FILE"
         pop {r1}
         pop {r0}
-        bl C_Open
+        bl NativeOpen
         push {r0}
         NEXT
 
 NATIVE CLOSEFILE, "CLOSE-FILE"
         pop {r0}
-        bl C_Close
+        bl NativeClose
         NEXT
 
 NATIVE READFILE, "READ-FILE"
         pop {r0}
         pop {r2}
         pop {r1}
-        bl C_Read
+        bl NativeRead
         push {r0}
         NEXT
 
@@ -271,7 +394,7 @@ NATIVE WRITEFILE, "WRITE-FILE"
         pop {r0}
         pop {r2}
         pop {r1}
-        bl C_Write
+        bl NativeWrite
         push {r0}
         NEXT
 
@@ -281,7 +404,7 @@ NATIVE EMIT
         NEXT
 
 NATIVE KEY
-        bl C_ReadKey
+        bl ReadKey
         push {r0}
         NEXT
 
@@ -504,7 +627,7 @@ NATIVE INTERPRET
 .LInterpreterLoop:
         bl ReadWord
         cmp r0, #0
-        beq RETC+4 // TODO!
+        beq NativeExit
         push {r0-r1}
         bl FindWord
         cmp r0, #0
@@ -528,6 +651,8 @@ NATIVE INTERPRET
 .LNumber:
         pop {r0-r1}
         bl ConvertNumber
+        cmp r1, #0
+        bne .LErr
         push {r0}
         ldr r1, =State
         ldr r1, [r1]
@@ -538,6 +663,19 @@ NATIVE INTERPRET
         pop {r0}
         bl DoComma
         b .LInterpreterLoop
+.LErr:
+        ldr r0, =2f
+        bl EmitZStr
+        ldr r0, =WordBuffer
+        bl EmitZStr
+        ldr r0, =3f
+        bl EmitZStr
+        mov r0, #-1
+        b NativeExit
+
+2: .asciz "Invalid Word: \""
+3: .asciz "\"\n"
+        .align 2, 0
 
         .thumb_func
 DOCOL:
@@ -595,8 +733,18 @@ DEFCONST CONST_O_RDONLY  , "O_RDONLY"  , O_RDONLY
 DEFCONST CONST_O_WRONLY  , "O_WRONLY"  , O_WRONLY
 DEFCONST CONST_O_RDWR    , "O_RDWR"    , O_RDWR
 DEFCONST CONST_O_CREAT   , "O_CREAT"   , O_CREAT
-DEFCONST CONST_STDIN     , "STDIN"     , 0 // XXX: Other forths have seperate StdinFile
-DEFCONST CONST_STDOUT    , "STDOUT"    , 1 // XXX: Same
+
+NATIVE CONST_STDIN, "STDIN"
+        ldr r0, =StdinFile
+        ldr r0, [r0]
+        push {r0}
+        NEXT
+
+NATIVE CONST_STDOUT, "STDOUT"
+        ldr r0, =StdoutFile
+        ldr r0, [r0]
+        push {r0}
+        NEXT
 
 // TODO FIXME
 DEFCONST HACK_DSP        , "DSP"       , 0
@@ -611,11 +759,11 @@ Here:   .long R0
 Base:   .long 10
 
         .bss
-
-.lcomm OldSP, 4
+.lcomm ArgC, 4
+.lcomm ArgV, 4
 .lcomm StdinFile, 4
 .lcomm StdoutFile, 4
 .lcomm InputFile, 4
 .lcomm OutputFile, 4
 .lcomm Cells, NUM_CELLS*4
-.lcomm WordBuffer, F_LENMASK+2
+.lcomm WordBuffer, F_LENMASK+1

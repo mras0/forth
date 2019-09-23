@@ -14,7 +14,8 @@ endif()
 add_executable(cforth cforth.c)
 
 if (${CMAKE_SYSTEM_PROCESSOR} STREQUAL arm)
-    add_executable(forth asmdriver.c forth-arm.S)
+    add_executable(forth forth-arm.S)
+    target_link_options(forth PRIVATE -nostdlib -static -Wl,--build-id=none)
 else()
     # Assume x86/x64
     find_program(NASM_EXE nasm)

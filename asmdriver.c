@@ -67,7 +67,7 @@ void C_Close(intptr_t fd)
 
 intptr_t C_Read(intptr_t fd, void* buf, unsigned len)
 {
-//    printf("C_Read(%d, %p, %u)\n", (int)fd, buf, len);
+    //printf("C_Read(%d, %p, %u)\n", (int)fd, buf, len);
     return read((int)fd, buf, len);
 }
 
@@ -206,7 +206,7 @@ void C_Debug(intptr_t val)
 int main(int argc, char* argv[])
 {
 //    InputText = ": X ' LITSTRING , ; X";
-#if 1
+#if 0
     OutputFile = StdoutFile = STDOUT_FILENO;
     if (argc > 1) {
         InputFile = C_Open(argv[1], O_RDONLY);
