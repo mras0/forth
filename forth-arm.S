@@ -40,6 +40,11 @@
         .set F_IMMED,           0x40
         .set F_LENMASK,         0x1F
 
+        .set O_RDONLY,          0x00
+        .set O_WRONLY,          0x01
+        .set O_RDWR,            0x02
+        .set O_CREAT,           0x40
+
         .set LAST_LINK, 0
 
         .macro WORD_HEADER label, name="", flags=0
@@ -208,13 +213,24 @@ NATIVE ZBRANCH, "0BRANCH"
         add r5, r5, #4
         NEXT
 
+NATIVE EXECUTE
+        pop {r0}
+        ldr r1, [r0]
+        bx r1
+
 NATIVE LIT
         ldr r0, [r5], #4
         push {r0}
         NEXT
 
-;NATIVE LITSTRING
-        
+NATIVE LITSTRING
+        ldr r0, [r5], #4
+        push {r5}
+        push {r0}
+        add r0, r0, 3
+        add r5, r5, r0
+        and r5, r5, #-4
+        NEXT
 
 NATIVE CHAR
         bl ReadWord
@@ -239,12 +255,12 @@ NATIVE KEY
 
 NATIVE GETWORD, "WORD"
         bl ReadWord
-        mov r2, r0
-        push {r1-r2}
+        push {r1}
+        push {r0}
         NEXT
 
 NATIVE CREATE
-        pop {r0-r1}             // r0 = name, r1 = length
+        pop {r0,r1}             // r1 = name, r0 = length
         push {r4-r5}
         ldr r2, =Here           // r2 = &Here
         ldr r3, =Latest         // r3 = &Latest
@@ -252,13 +268,13 @@ NATIVE CREATE
         ldr r5, [r3]            // r5 = Latest
         str r4, [r3]            // Update Latest
         str r5, [r4], #4        // Store link in header
-        strb r1, [r4], #1       // Store length
+        strb r0, [r4], #1       // Store length
 1:                              // Copy name
-        cmp r1, #0
+        cmp r0, #0
         beq 2f
-        ldrb r5, [r0], #1
+        ldrb r5, [r1], #1
         strb r5, [r4], #1
-        add r1, r1, #-1
+        add r0, r0, #-1
         b 1b
 2:
         add r4, r4, 3           // Align Here
@@ -268,7 +284,8 @@ NATIVE CREATE
         NEXT
 
 NATIVE FIND
-        pop {r0,r1}
+        pop {r0}
+        pop {r1}
         bl FindWord
         push {r0}
         NEXT
@@ -321,7 +338,7 @@ NATIVE FETCH, "\@"
 
 NATIVE STORE, "!"
         pop {r0,r1}
-        str r0, [r1]
+        str r1, [r0]
         NEXT
 
 NATIVE CFETCH, "C@"
@@ -332,7 +349,7 @@ NATIVE CFETCH, "C@"
 
 NATIVE CSTORE, "C!"
         pop {r0,r1}
-        strb r0, [r1]
+        strb r1, [r0]
         NEXT
 
 NATIVE DSPFETCH, "DSP@"
@@ -372,8 +389,8 @@ NATIVE SWAP
 NATIVE ROT
         pop {r0-r2}
         push {r1}
-        push {r2}
         push {r0}
+        push {r2}
         NEXT
 
 NATIVE ADD, "+"
@@ -384,7 +401,7 @@ NATIVE ADD, "+"
 
 NATIVE SUB, "-"
         pop {r0,r1}
-        sub r0, r0, r1
+        sub r0, r1, r0
         push {r0}
         NEXT
 
@@ -398,14 +415,14 @@ NATIVE DIVMOD, "/MOD"
         pop {r1}
         pop {r0}
         bl Div32
-        push {r0,r1}
+        push {r0-r1}
         NEXT
 
 NATIVE UDIVMOD, "U/MOD"
         pop {r1}
         pop {r0}
         bl UDiv32
-        push {r0,r1}
+        push {r0-r1}
         NEXT
 
 NATIVE BAND, "AND"
@@ -436,7 +453,7 @@ NATIVE INVERT
 NATIVE CMP\flags, "\name"
         pop {r0,r1}
         mov r2, #-1
-        cmp r0, r1
+        cmp r1, r0
         b\flags 1f
         mov r2, #0
 1:
@@ -526,7 +543,7 @@ NATIVE \label, "\name"
 
         .macro DEFCONST label, name, val
 NATIVE \label, "\name"
-        mov r0, \val
+        mov r0, #\val
         push {r0}
         NEXT
         .endm
@@ -535,7 +552,22 @@ DEFVAR   VAR_LATEST      , "LATEST"    , Latest
 DEFVAR   VAR_STATE       , "STATE"     , State
 DEFVAR   VAR_HERE        , "HERE"      , Here
 DEFVAR   VAR_BASE        , "BASE"      , Base
+DEFVAR   CONST_DOCOL     , "DOCOL"     , DOCOL
+DEFVAR   CONST_R0        , "R0"        , R0
+DEFVAR   CONST_S0        , "S0"        , S0
 DEFCONST CONST_CELL_SIZE , "CELL-SIZE" , 4
+DEFCONST CONST_F_LENMASK , "F_LENMASK" , F_LENMASK
+DEFCONST CONST_F_IMMED   , "F_IMMED"   , F_IMMED
+DEFCONST CONST_F_HIDDEN  , "F_HIDDEN"  , F_HIDDEN
+DEFCONST CONST_O_RDONLY  , "O_RDONLY"  , O_RDONLY
+DEFCONST CONST_O_WRONLY  , "O_WRONLY"  , O_WRONLY
+DEFCONST CONST_O_RDWR    , "O_RDWR"    , O_RDWR
+DEFCONST CONST_O_CREAT   , "O_CREAT"   , O_CREAT
+
+// TODO FIXME
+DEFCONST HACK_DSP        , "DSP"       , 0
+DEFCONST HACK_KERNEL32   , "KERNEL32"  , 0
+DEFCONST HACK_GETPROC    , "GETPROC"   , 0
 
         .data
 

@@ -4,6 +4,7 @@
 : THEN IMMEDIATE DUP HERE @ SWAP - SWAP ! ;
 : ELSE IMMEDIATE ' BRANCH , HERE @ 0 , SWAP DUP HERE @ SWAP - SWAP ! ;
 
+: Y 0 IF 42 THEN ; Y
 : X 0 IF 42 ELSE 33 THEN ; X EMIT 10 EMIT
 
 : 1+ 1 + ;
@@ -88,7 +89,7 @@
 : . 0 .R SPACE ;
 : U. U. SPACE ;
 
--42 . 1337 U. CR \ Test printing
+100 U. 132456 . -42 . CR \ Test printing
 
 : ALIGNED CELL-SIZE 1- + CELL-SIZE NEGATE AND ;
 : ALIGN HERE @ ALIGNED HERE ! ;
@@ -105,7 +106,13 @@
         HERE @ BEGIN KEY DUP '"' <> WHILE OVER C! 1+ REPEAT DROP HERE @ - HERE @ SWAP
     THEN ;
 : TELL BEGIN ?DUP 0<> WHILE SWAP C@++ EMIT SWAP 1- REPEAT DROP ;
+
+LATEST @ CELL+ C@++ TELL CR
+S" HELLO WORLD!" TELL CR
+
 : ." IMMEDIATE [COMPILE] S" STATE @ IF ' TELL , ELSE TELL THEN ;
+
+." ANOTHER HELLO world!" CR
 
 \ Constants/Variables/Value
 : MAKE-LIT-FUNC WORD CREATE DOCOL , ' LIT , , ' EXIT ,  ;
@@ -115,9 +122,14 @@
 : VALUE MAKE-LIT-FUNC ;
 : TO WORD FIND >CFA 2 CELLS + ! ;
 
+42 CONSTANT MEANING
+MEANING EMIT CR
+
 \ Debug helpers
 : DEPTH S0 DSP@ - CELL-SIZE / 1- ;
 : .S DSP@ BEGIN DUP S0 < WHILE DUP @ U. SPACE CELL+ REPEAT DROP ;
+
+42 1337 .S CR DROP DROP
 
 : ID. CELL+ DUP C@ F_LENMASK AND BEGIN DUP 0> WHILE SWAP 1+ DUP C@ EMIT SWAP 1- REPEAT 2DROP ;
 : ?HIDDEN CELL+ C@ F_HIDDEN AND ;
@@ -403,6 +415,24 @@ TRY-RUN-TESTS
     DROP ( Drop str )
 ;
 
+SEE DEPTH
+
+: FOO ( n -- ) THROW ;
+
+: TEST-EXCEPTIONS
+    25 ['] FOO CATCH	\ execute 25 FOO, catching any exception
+    ?DUP IF
+        ." called FOO and it threw exception number: "
+        . CR
+        DROP		\ we have to drop the argument of FOO (25)
+    THEN
+;
+
+TEST-EXCEPTIONS
+-1 FOO
+
+: FOO Z" foo bar !!! " DUP STRLEN 1+ DUMP ; FOO
+
 ( ******************************************************************* )
 
 HEX
@@ -525,24 +555,6 @@ HEX
 DECIMAL
 
 ( ******************************************************************* )
-
-SEE DEPTH
-
-: FOO ( n -- ) THROW ;
-
-: TEST-EXCEPTIONS
-    25 ['] FOO CATCH	\ execute 25 FOO, catching any exception
-    ?DUP IF
-        ." called FOO and it threw exception number: "
-        . CR
-        DROP		\ we have to drop the argument of FOO (25)
-    THEN
-;
-
-TEST-EXCEPTIONS
--1 FOO
-
-: FOO Z" foo bar !!! " DUP STRLEN 1+ DUMP ; FOO
 
 S" CALL1" FIND >DFA 128 DUMP
 

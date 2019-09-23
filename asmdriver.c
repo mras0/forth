@@ -113,13 +113,13 @@ SkipSpaces:
 
 WordHeader* C_FindWord(uint8_t WordLen, const char* Name)
 {
-    //printf("Finding word \"%*.*s\"\n", WordLen, WordLen, Name);
     for (WordHeader* WH = Latest; WH; WH = WH->Prev) {
         if ((WH->LengthAndFlags & (F_LENMASK|F_HIDDEN)) == WordLen && !memcmp(Name, WH->Name, WordLen)) {
             //printf("Found word \"%*.*s\" -> %p\n", WordLen, WordLen, Name, (void*)WH);
             return WH;
         }
     }
+    //printf("Word not found \"%*.*s\"\n", WordLen, WordLen, Name);
     return NULL;
 }
 
@@ -165,14 +165,14 @@ Error:
 
 void C_Emit(uint8_t ch)
 {
-    printf("Emitting %c (%02X)\n", ch, ch);
+    //printf("Emitting %c (%02X)\n", ch, ch);
     C_Write(STDOUT_FILENO, &ch, 1);
 }
 
 void C_PrintWords(void)
 {
     for (WordHeader* WH = Latest; WH; WH = WH->Prev) {
-        printf("%p: %*.*s %02X\n", (void*)WH, F_LENMASK, WH->LengthAndFlags & F_LENMASK, WH->Name, WH->LengthAndFlags & ~F_LENMASK);
+        printf("%p: %-*.*s %02X\n", (void*)WH, F_LENMASK, WH->LengthAndFlags & F_LENMASK, WH->Name, WH->LengthAndFlags & ~F_LENMASK);
     }
 }
 
@@ -201,6 +201,7 @@ void C_Debug(intptr_t val)
 
 int main(int argc, char* argv[])
 {
+//    InputText = ": X ' LITSTRING , ; X";
 #if 1
     OutputFile = StdoutFile = STDOUT_FILENO;
     if (argc > 1) {
@@ -213,8 +214,8 @@ int main(int argc, char* argv[])
         InputFile = STDIN_FILENO;
     }
 #endif
-    C_PrintWords();
     int retval = ForthMain(argc, argv);
     printf("Interpreter exited with code %d (%08X) State=%d\n", retval, retval, (int)State);
+    C_PrintWords();
     return 0;
 }
