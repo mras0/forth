@@ -604,6 +604,13 @@ NATIVE INVERT
         str r0, [sp]
         NEXT
 
+NATIVE ALIGNED
+        ldr r0, [sp]
+        add r0, r0, #3
+        and r0, r0, #-4
+        str r0, [sp]
+        NEXT
+
         .macro NATIVECOMPARE, flags, name
 NATIVE CMP\flags, "\name"
         pop {r0,r1}

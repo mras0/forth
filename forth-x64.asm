@@ -505,6 +505,13 @@ NATIVE INVERT
         not qword [rsp]
         NEXT
 
+NATIVE ALIGNED
+        pop rax
+        add rax, 7
+        and rax, -8
+        push rax
+        NEXT
+
 %macro NATIVECOMPARE 2
 NATIVE CMP%1, %2
         pop rax

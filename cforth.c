@@ -507,6 +507,12 @@ DEF_RELOP(Ge, >=)
 DEF_RELOP(Gt, >)
 #undef DEF_RELOP
 
+static void Aligned(void)
+{
+    const intptr_t val = DPOP();
+    DPUSH((val + sizeof(intptr_t) - 1) & -(intptr_t)sizeof(intptr_t));
+}
+
 #define W(N) (assert(FindWordZ(N)),(intptr_t)WordCFA(FindWordZ(N)))
 #define ENDW ((intptr_t)-43) // Something that's unlikely to be used
 
@@ -589,6 +595,7 @@ static void DefineBuiltins(void)
     DefineNativeWord("<>"         , &Ne);
     DefineNativeWord(">="         , &Ge);
     DefineNativeWord(">"          , &Gt);
+    DefineNativeWord("ALIGNED"    , &Aligned);
     DefineNativeWord("OPEN-FILE"  , &FileOpen);
     DefineNativeWord("CLOSE-FILE" , &FileClose);
     DefineNativeWord("READ-FILE"  , &FileRead);
@@ -807,6 +814,7 @@ void RunTests(void)
     TEST(": X 42 ; : Y ' X ; Y EXECUTE", 42);
     TEST(":NONAME 2 + ; 40 SWAP EXECUTE", 42);
     TEST(": X 60 ; : A ['] X EXECUTE ; A", 60);
+    TEST("31 ALIGNED", 32);
 }
 #endif
 

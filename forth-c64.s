@@ -324,6 +324,19 @@ ReadKey:
         inc :- + 1
         bne :+
         inc :- + 2
+:       cmp #$61 ; ASCII lower case 'a'
+        bcc :++
+        cmp #$7a+1 ; ASCII lower case 'z'
+        bcs :+
+        and #$df
+:       rts
+:       cmp #$5c ; ASCII backslash '\'
+        bne :+
+        lda #'\'
+        rts
+:       cmp #$5f ; ASCII underscore '_'
+        bne :+
+        lda #'_'
 :       rts
 
 ReadWord:
@@ -333,7 +346,18 @@ ReadWord:
         beq @End
         cmp #' '+1
         bcc @SkipSpaces
-        ; TODO: Check for '\'
+        cmp #'\'
+        bne @DoRead
+@SkipLine:
+        jsr ReadKey
+        cmp #0
+        beq @End
+        cmp #13
+        beq @SkipSpaces
+        cmp #10
+        beq @SkipSpaces
+        bne @SkipLine
+@DoRead:
         ldx #0
 @ReadLoop:
         sta WordBuffer, x
@@ -399,6 +423,7 @@ ConvertNumber:
         ldx #<@InvalidNumMsg2
         ldy #>@InvalidNumMsg2
         jsr PrintZStr
+        jsr PrintWords
         jmp Halt+2
 
 @InvalidNumMsg:  .byte 13, "invalid number: ", '"', 0
@@ -409,7 +434,11 @@ PrintWords:
         sta TMP1
         lda Latest+1
         sta TMP1+1
+        lda #10 ; Limit number of words to print
+        sta TMP2
 :
+        dec TMP2
+        beq @Done
         ldx TMP1
         ldy TMP1+1
         jsr PrintHexWord
@@ -441,7 +470,7 @@ PrintWords:
         bne :-
         cpx #0
         bne :-
-        rts
+@Done:  rts
 
         ; Find word of length A in X,Y
         ; Pointer returned in RES, carry clear if found
@@ -522,8 +551,47 @@ NATIVE Lit, "lit", 0, W_EXIT
         ADDN IPTR, 2
         NEXT
 
+W_LITSTRING:
+NATIVE LitString, "litstring", 0, W_LIT
+        ldy #0
+        lda (IPTR), y
+        tax
+        ADDN IPTR, 2
+        DPUSH IPTR
+        clc
+        txa
+        adc IPTR
+        sta IPTR
+        bcc :+
+        inc IPTR+1
+:       txa
+        sta TMP1
+        lda #0
+        sta TMP1+1
+        DPUSH TMP1
+
+
+        DPOP TMP1
+        DPOP TMP2
+        PUTSTR "tmp1="
+        PUTZPWORD TMP1
+        PUTSTR " tmp2="
+        PUTZPWORD TMP2
+        PUTCR
+        jmp *
+
+W_CHAR:
+NATIVE Char, "char", 0, W_LITSTRING
+        jsr ReadWord
+        lda WordBuffer
+        sta RES
+        lda #0
+        sta RES+1
+        DPUSH RES
+        NEXT
+
 W_INTERPRET:
-NATIVE Interpret, "interpret", 0, W_LIT
+NATIVE Interpret, "interpret", 0, W_CHAR
 @Loop:
         jsr ReadWord
         cmp #0
@@ -531,6 +599,9 @@ NATIVE Interpret, "interpret", 0, W_LIT
         jmp Halt+2
 @NotEmpty:
         .if 0
+        lda State
+        jsr PrintByte
+        jsr PrintSpace
         ldx #<WordBuffer
         ldy #>WordBuffer
         jsr PrintStr
@@ -608,8 +679,17 @@ NATIVE Emit, "emit", 0, W_INTERPRET
 :       jsr BASOUT
         NEXT
 
+W_KEY:
+NATIVE Key, "key", 0, W_EMIT
+        jsr ReadKey
+        sta RES
+        lda #0
+        sta RES+1
+        DPUSH RES
+        NEXT
+
 W_HALT:
-NATIVE Halt, "halt", 0, W_EMIT
+NATIVE Halt, "halt", 0, W_KEY
         ldx #<:+
         ldy #>:+
         jsr PrintZStr
@@ -792,9 +872,63 @@ NATIVE Gt, ">", 0, W_GE
         stx RES+1
         DPUSH RES
         NEXT
+W_AND:
+NATIVE BAnd, "and", 0, W_GT
+        DPOP TMP2
+        DPOP TMP1
+        clc
+        lda TMP1
+        and TMP2
+        sta TMP1
+        lda TMP1+1
+        and TMP2+1
+        sta TMP1+1
+        DPUSH TMP1
+        NEXT
+
+W_OR:
+NATIVE BOr, "or", 0, W_AND
+        DPOP TMP2
+        DPOP TMP1
+        clc
+        lda TMP1
+        ora TMP2
+        sta TMP1
+        lda TMP1+1
+        ora TMP2+1
+        sta TMP1+1
+        DPUSH TMP1
+        NEXT
+
+W_XOR:
+NATIVE BXor, "xor", 0, W_OR
+        DPOP TMP2
+        DPOP TMP1
+        clc
+        lda TMP1
+        eor TMP2
+        sta TMP1
+        lda TMP1+1
+        eor TMP2+1
+        sta TMP1+1
+        DPUSH TMP1
+        NEXT
+
+W_INVERT:
+NATIVE Invert, "invert", 0, W_XOR
+        DPOP TMP1
+        lda #$ff
+        tax
+        eor TMP1
+        sta TMP1
+        txa
+        eor TMP1+1
+        sta TMP1+1
+        DPUSH TMP1
+        NEXT
 
 W_BRANCH:
-NATIVE Branch, "branch", 0, W_GT
+NATIVE Branch, "branch", 0, W_INVERT
         ldy #1
         lda (IPTR), y
         tax
@@ -910,13 +1044,13 @@ NATIVE Comma, ",", 0, W_CREATE
         NEXT
 
 W_LBRACKET:
-NATIVE LBracket, "[", 0, W_COMMA
+NATIVE LBracket, "[", F_IMMED, W_COMMA
         lda #0
         sta State
         NEXT
 
 W_RBRACKET:
-NATIVE RBracket, "]", F_IMMED, W_LBRACKET
+NATIVE RBracket, "]", 0, W_LBRACKET
         lda #1
         sta State
         NEXT
@@ -949,8 +1083,29 @@ NATIVE Store, "!", 0, W_FETCH
         sta (TMP2), y
         NEXT
 
+W_CFETCH:
+NATIVE CFetch, "c@", 0, W_STORE
+        DPOP TMP1
+        SUBN DSP, 2
+        ldy #0
+        lda (TMP1), y
+        sta (DSP), y
+        iny
+        lda #0
+        sta (DSP), y
+        NEXT
+
+W_CSTORE:
+NATIVE CStore, "c!", 0, W_CFETCH
+        DPOP TMP2
+        DPOP TMP1
+        ldy #0
+        lda TMP1
+        sta (TMP2), y
+        NEXT
+
 W_DSPFETCH:
-NATIVE DspFetch, "dsp@", 0, W_STORE
+NATIVE DspFetch, "dsp@", 0, W_CSTORE
         lda DSP
         sta TMP1
         lda DSP+1
@@ -998,8 +1153,18 @@ NATIVE Swap, "swap", 0, W_FROMR
         DPUSH TMP2
         NEXT
 
+W_ROT:
+NATIVE Rot, "rot", 0, W_SWAP
+        DPOP TMP1
+        DPOP TMP2
+        DPOP RES
+        DPUSH TMP2
+        DPUSH TMP1
+        DPUSH RES
+        NEXT
+
 W_HIDDEN:
-NATIVE Hidden, "hidden", 0, W_SWAP
+NATIVE Hidden, "hidden", 0, W_ROT
         DPOP TMP1
         ldy #2
         lda (TMP1), y
@@ -1019,9 +1184,35 @@ NATIVE Immediate, "immediate", F_IMMED, W_HIDDEN
         sta (TMP1), y
         NEXT
 
+W_CFA:
+NATIVE Cfa, ">cfa", 0, W_IMMEDIATE
+        DPOP TMP1
+        ldy #2
+        lda (TMP1), y
+        and #F_LENMASK
+        clc
+        adc #3
+        adc TMP1
+        sta TMP1
+        bcc :+
+        inc TMP1+1
+:       DPUSH TMP1
+        NEXT
+
+W_FIND:
+NATIVE Find, "find", 0, W_CFA
+        DPOP TMP2
+        DPOP TMP1
+        ldx TMP1
+        ldy TMP1+1
+        lda TMP2
+        jsr FindWord
+        DPUSH RES
+        NEXT
+
 W_QUIT:
-DEFWORD Quit, "quit", 0, W_IMMEDIATE
-        ; TODO: LIT, R0, RSPSTORE
+DEFWORD Quit, "quit", 0, W_FIND
+        .word Lit, R0, RspStore
         .word Interpret
         .word Branch, 65536-4
 
@@ -1040,40 +1231,62 @@ DEFWORD SemiColon, ";", F_IMMED, W_COLON
         .word LBracket
         .word Exit
 
-W_LATEST:
-NATIVE GetLatest, "latest", 0, W_SEMICOLON
+W_ALIGNED:
+DEFWORD Aligned, "aligned", 0, W_SEMICOLON
+        .word Exit ; Nothing to do
+
+.macro DPUSH_LIT val
         SUBN DSP, 2
         ldy #0
-        lda #<Latest
+        lda #<(val)
         sta (DSP), y
         iny
-        lda #>Latest
+        lda #>(val)
         sta (DSP), y
         NEXT
+.endmacro
+
+W_LATEST:
+NATIVE GetLatest, "latest", 0, W_ALIGNED
+        DPUSH_LIT Latest
 
 W_HERE:
 NATIVE GetHere, "here", 0, W_LATEST
-        SUBN DSP, 2
-        ldy #0
-        lda #<HERE
-        sta (DSP), y
-        iny
-        lda #>HERE
-        sta (DSP), y
-        NEXT
+        DPUSH_LIT HERE
+
+W_STATE:
+NATIVE GetState, "state", 0, W_HERE
+        DPUSH_LIT State
+
+W_BASE:
+NATIVE GetBase, "base", 0, W_STATE
+        DPUSH_LIT Base
 
 W_CELLSIZE:
-NATIVE CellSize, "cell-size", 0, W_HERE
-        SUBN DSP, 2
-        ldy #0
-        lda #2
-        sta (DSP), y
-        iny
-        lda #0
-        sta (DSP), y
-        NEXT
+NATIVE CellSize, "cell-size", 0, W_BASE
+        DPUSH_LIT 2
 
-Latest:         .word W_CELLSIZE
+W_DOCOL:
+NATIVE GetDoCol, "docol", 0, W_CELLSIZE
+        DPUSH_LIT DoCol-1 ; -1 for RTS
+
+W_S0:
+NATIVE GetS0, "s0", 0, W_DOCOL
+        DPUSH_LIT S0
+
+W_F_LENMASK:
+NATIVE GetFLenMask, "f_lenmask", 0, W_S0
+        DPUSH_LIT F_LENMASK
+
+W_F_IMMED:
+NATIVE GetFImmed, "f_immed", 0, W_F_LENMASK
+        DPUSH_LIT F_IMMED
+
+W_F_HIDDEN:
+NATIVE GetFHidden, "f_hidden", 0, W_F_IMMED
+        DPUSH_LIT F_HIDDEN
+
+Latest:         .word W_F_HIDDEN
 State:          .word 0
 Base:           .word 10
 
@@ -1081,8 +1294,7 @@ WordBuffer:     .res 32
 WordLen:        .res 1
 
 InputText:
-;.byte "-2 4 * h. 57 3 - emit : star 42 emit ; star 13 emit "
-;.byte "-125 -124 >= h."
+;.byte "latest @ h. latest @ >cfa h."
 .incbin "std.fth"
 .byte 0
 

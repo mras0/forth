@@ -543,6 +543,13 @@ NATIVE INVERT
         not dword [esp]
         NEXT
 
+NATIVE ALIGNED
+        pop eax
+        add eax, 3
+        and eax, -4
+        push eax
+        NEXT
+
 %macro NATIVECOMPARE 2
 NATIVE CMP%1, %2
         pop eax
