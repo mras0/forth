@@ -57,6 +57,28 @@ else()
     endif()
 endif()
 
+find_program(CA65_EXE ca65)
+find_program(LD65_EXE ld65)
+if (CA65_EXE AND LD65_EXE)
+    message(STATUS "Can build C64 version")
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/forth-c64.prg
+        COMMAND ${CA65_EXE} -t c64 ${CMAKE_CURRENT_SOURCE_DIR}/forth-c64.s -o ${CMAKE_CURRENT_BINARY_DIR}/forth-c64.o
+        COMMAND ${LD65_EXE} -C c64-asm.cfg -o ${CMAKE_CURRENT_BINARY_DIR}/forth-c64.prg ${CMAKE_CURRENT_BINARY_DIR}/forth-c64.o
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/forth-c64.s
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_custom_target(forth-c64 ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/forth-c64.prg)
+    find_program(X64_EXE x64)
+    if (X64_EXE)
+        add_custom_target(
+            test-forth-c64
+            COMMAND ${X64_EXE} ${CMAKE_CURRENT_BINARY_DIR}/forth-c64.prg
+            DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/forth-c64.prg
+            )
+    endif()
+endif()
+
 if (MSVC)
     set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT cforth)
 endif()

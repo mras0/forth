@@ -6,6 +6,7 @@
 
 : Y 0 IF 42 THEN ; Y
 : X 0 IF 42 ELSE 33 THEN ; X EMIT 10 EMIT
+: Z 1 IF 42 ELSE 33 THEN ; Z EMIT 10 EMIT
 
 : 1+ 1 + ;
 : 1- 1 - ;
