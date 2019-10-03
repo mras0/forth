@@ -6,16 +6,20 @@
         .code
         .byte $0b, $08, $01, $00, $9e, $32, $30, $36, $31, $00, $00, $00 ; SYS 2061
 
-BASOUT = $ffd2
+CHRIN  = $ffcf
+CHROUT = $ffd2
 
-LASTCFA = $55
-IPTR    = $57
-RSP     = $59
-DSP     = $5B
-TMP1    = $5D
-TMP2    = $5F
-RES     = $61
-HERE    = $63
+IPTR    = $55
+RSP     = $57
+DSP     = $59
+TMP1    = $5B
+TMP2    = $5D
+RES     = $5F
+HERE    = $61
+Latest  = $63
+State   = $65
+Base    = $67
+LASTCFA = TMP1
 
 NUM_CELLS = 4096
 RSIZE     = 128
@@ -94,12 +98,6 @@ label:
 .endmacro
 
 .macro GOCFA
-        ;PUTSTR "lastcfa="
-        ;PUTZPWORD LASTCFA
-        ;PUTSTR " *lastcfa="
-        ;PUTIZPWORD LASTCFA
-        ;PUTCR
-
         ldy #1
         lda (LASTCFA), y
         pha
@@ -110,12 +108,6 @@ label:
 .endmacro
 
 .macro NEXT
-        ;PUTSTR "iptr="
-        ;PUTZPWORD IPTR
-        ;PUTSTR " *iptr="
-        ;PUTIZPWORD IPTR
-        ;PUTCR
-
         ldy #0
         lda (IPTR), y
         sta LASTCFA
@@ -166,6 +158,17 @@ label:
 .endmacro
 
 start:
+        lda #<W_F_HIDDEN
+        sta Latest
+        lda #>W_F_HIDDEN
+        sta Latest+1
+        lda #0
+        sta State
+        sta State+1
+        sta Base+1
+        lda #10
+        sta Base
+
         lda #<S0
         sta DSP
         lda #>S0
@@ -191,7 +194,7 @@ PrintZStr:
         sty @L2+2
         ldx #0
         beq @L2
-@L1:    jsr BASOUT
+@L1:    jsr CHROUT
         inx
 @L2:    lda $1234, x
         bne @L1
@@ -206,7 +209,7 @@ PrintStr:
         tay
         ldx #0
 @L1:    lda $1234, x
-        jsr BASOUT
+        jsr CHROUT
         inx
         dey
         bne @L1
@@ -214,11 +217,11 @@ PrintStr:
 
 PrintSpace:
         lda #' '
-        jmp BASOUT
+        jmp CHROUT
 
 PrintCr:
         lda #13
-        jmp BASOUT
+        jmp CHROUT
 
 ; Print word in X,Y
 PrintHexWord:
@@ -241,7 +244,7 @@ PrintDigit:
         cmp #'9'+1
         bcc :+
         adc #6
-:       jmp BASOUT
+:       jmp CHROUT
 
 ; RES *= A
 Mul8:
@@ -319,11 +322,12 @@ UDiv16:
         rts
 
 ReadKey:
-:       lda InputText
-        beq :+
-        inc :- + 1
+@Load:  lda InputText
         bne :+
-        inc :- + 2
+        jmp CHRIN
+:       inc @Load + 1
+        bne :+
+        inc @Load + 2
 :       cmp #$61 ; ASCII lower case 'a'
         bcc :++
         cmp #$7a+1 ; ASCII lower case 'z'
@@ -394,9 +398,9 @@ ConvertNumber:
         sec
         sbc #'0'
         bcc @Err
-        cmp #'9'+1
+        cmp #9+1
         bcc @Add
-        sbc #$C1-'0'-10 ; Petscii 'A' is $C1
+        sbc #'a'-'0'-10
 @Add:   cmp Base
         bcs @Err
         beq @Err
@@ -414,7 +418,8 @@ ConvertNumber:
         NEGWORD RES
 @Done:
         rts
-@Err:   ldx #<@InvalidNumMsg
+@Err:
+        ldx #<@InvalidNumMsg
         ldy #>@InvalidNumMsg
         jsr PrintZStr
         ldx #<WordBuffer
@@ -569,16 +574,7 @@ NATIVE LitString, "litstring", 0, W_LIT
         lda #0
         sta TMP1+1
         DPUSH TMP1
-
-
-        DPOP TMP1
-        DPOP TMP2
-        PUTSTR "tmp1="
-        PUTZPWORD TMP1
-        PUTSTR " tmp2="
-        PUTZPWORD TMP2
-        PUTCR
-        jmp *
+        NEXT
 
 W_CHAR:
 NATIVE Char, "char", 0, W_LITSTRING
@@ -676,7 +672,7 @@ NATIVE Emit, "emit", 0, W_INTERPRET
         cmp #10
         bne :+
         lda #13 ; Convert LF->CR
-:       jsr BASOUT
+:       jsr CHROUT
         NEXT
 
 W_KEY:
@@ -853,17 +849,6 @@ NATIVE Le, "<=", 0, W_LT
 
 W_GE:
 NATIVE Ge, ">=", 0, W_LE
-        ldx #$00
-        SIGNED_COMPARE 1
-        bpl :+
-        ldx #$ff
-:       stx RES
-        stx RES+1
-        DPUSH RES
-        NEXT
-
-W_GT:
-NATIVE Gt, ">", 0, W_GE
         ldx #$ff
         SIGNED_COMPARE 0
         bpl :+
@@ -872,6 +857,18 @@ NATIVE Gt, ">", 0, W_GE
         stx RES+1
         DPUSH RES
         NEXT
+
+W_GT:
+NATIVE Gt, ">", 0, W_GE
+        ldx #$ff
+        SIGNED_COMPARE 1
+        bmi :+
+        ldx #$00
+:       stx RES
+        stx RES+1
+        DPUSH RES
+        NEXT
+
 W_AND:
 NATIVE BAnd, "and", 0, W_GT
         DPOP TMP2
@@ -953,8 +950,13 @@ NATIVE ZBranch, "0branch", 0, W_BRANCH
 @Ret:   ADDN IPTR, 2
         NEXT
 
+W_EXECUTE:
+NATIVE Execute, "execute", 0, W_ZBRANCH
+        DPOP LASTCFA
+        GOCFA
+
 W_HEXDOT:
-NATIVE HexDot, "h.", 0, W_ZBRANCH
+NATIVE HexDot, "h.", 0, W_EXECUTE
         DPOP TMP1
         ldx TMP1
         ldy TMP1+1
@@ -1274,8 +1276,16 @@ W_S0:
 NATIVE GetS0, "s0", 0, W_DOCOL
         DPUSH_LIT S0
 
+W_R0:
+NATIVE GetR0, "r0", 0, W_S0
+        DPUSH_LIT R0
+
+W_DSP:
+NATIVE GetDsp, "dsp", 0, W_R0
+        DPUSH_LIT DSP
+
 W_F_LENMASK:
-NATIVE GetFLenMask, "f_lenmask", 0, W_S0
+NATIVE GetFLenMask, "f_lenmask", 0, W_DSP
         DPUSH_LIT F_LENMASK
 
 W_F_IMMED:
@@ -1286,17 +1296,11 @@ W_F_HIDDEN:
 NATIVE GetFHidden, "f_hidden", 0, W_F_IMMED
         DPUSH_LIT F_HIDDEN
 
-Latest:         .word W_F_HIDDEN
-State:          .word 0
-Base:           .word 10
-
-WordBuffer:     .res 32
-WordLen:        .res 1
-
 InputText:
-;.byte "latest @ h. latest @ >cfa h."
 .incbin "std.fth"
-.byte 0
+.byte " .", '"', " forth ready", '"', " cr "
+.byte 0 ; Switch to keyboard input
 
-; Must be last!
-Cells:
+WordLen    = *
+WordBuffer = WordLen+1
+Cells      = WordBuffer+32
