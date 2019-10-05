@@ -11,14 +11,188 @@ F_HIDDEN  EQU 0x80
 F_IMMED   EQU 0x40
 F_LENMASK EQU 0x1f
 
+O_RDONLY  EQU 0
+
+STDIN_FILENO  EQU -1 ; 0
+STDOUT_FILENO EQU -2 ; 1
+
 Main:
         cld
+
+        mov word [OutputFile], STDOUT_FILENO
+
+        ;
+        ; Process command line
+        ;
+        mov si, 0x81
+        xor di, di
+.SkipSpace:
+        lodsb
+        cmp al, 13
+        je .NoFile
+        cmp al, ' '
+        jbe .SkipSpace
+        mov di, si
+        dec di
+        xor bx, bx
+.FindEnd:
+        inc bx
+        lodsb
+        cmp al, 13
+        je .AtEnd
+        jmp .FindEnd
+.AtEnd:
+        mov byte [di+bx], 0
+
+        xor ax, ax
+        call OpenFile
+        mov [InputFile], ax
+        call PutHexByte
+        jmp .HasFile
+.NoFile:
+        mov word [InputFile], STDIN_FILENO
+.HasFile:
         mov sp, Cells+NUM_CELLS*2 ; S0
         mov bp, Cells+RSIZE*2     ; R0
         mov si, .Start
         jmp Next
 .Start:
         dw Quit
+
+; Filename in DI, mode in AX (ignored for now)
+OpenFile:
+        mov dx, di
+        mov ax, 0x3d00
+        int 0x21
+        jc .Err
+        ret
+.Err:
+        mov bx, .MsgErrOpen
+        call PutZString
+        mov bx, di
+        call PutZString
+        mov al, 10
+        call Emit
+        mov ax, 0x4c02
+        int 0x21
+.MsgErrOpen: db 'Error opening file: ', 0
+
+CloseFile:
+        mov bx, ax
+        mov ax, 0x3e00
+        int 0x21
+        ret
+
+ReadFile:
+        %if 1
+        cmp ax, STDIN_FILENO
+        jne .Normal
+        push cx
+        push di
+        and cx, cx
+        jz .Done
+.L:
+        xor ah, ah
+        int 0x16
+        cmp al, 13
+        jne .S
+        mov al, 10 ; CR -> LF
+.S:
+        stosb
+        call Emit ; Echo
+        dec cx
+        jnz .L
+.Done:
+        pop di
+        pop ax
+        ret
+.Normal:
+        %endif
+        mov bx, ax
+        mov ah, 0x3f
+        mov dx, di
+        int 0x21
+        jnc .OK
+        xor ax, ax
+.OK:    ret
+
+WriteFile:
+        %if 1
+        cmp ax, STDOUT_FILENO
+        jne .Normal
+
+        push cx
+        push bp
+        and cx, cx
+        jz .Done
+.L:
+        mov al, [di]
+        inc di
+        push cx
+        mov bx, 7
+        mov ah, 0x0e
+        cmp al, 10
+        jne .Pr
+        mov al, 13
+        int 0x10
+        mov bx, 7
+        mov ax, 0x0e0a
+.Pr:    int 0x10
+        pop cx
+        dec cx
+        jnz .L
+.Done:
+        pop bp
+        pop ax
+        ret
+.Normal:
+        %endif
+
+        mov bx, ax
+        mov ah, 0x40
+        mov dx, di
+        int 0x21
+        jnc .OK
+        xor ax, ax
+.OK:    ret
+
+Emit:
+        push bx
+        push cx
+        push dx
+        push di
+        push ax
+        mov ax, [OutputFile]
+        mov di, sp
+        mov cx, 1
+        call WriteFile
+        pop ax
+        pop di
+        pop dx
+        pop cx
+        pop bx
+        ret
+
+ReadKey:
+        push bx
+        push di
+        sub sp, 2
+        mov di, sp
+        mov cx, 1
+        mov ax, [InputFile]
+        call ReadFile
+        and ax, ax
+        jz .Ret
+        mov al, [di]
+        cmp al, 'a'
+        jb .Ret
+        cmp al, 'z'
+        ja .Ret
+        and al, 0xdf
+.Ret:   add sp, 2
+        pop di
+        pop bx
+        ret
 
 Next:
         lodsw
@@ -54,41 +228,6 @@ PutHexDigit:
         jbe Emit
         add al, 7
         jmp Emit
-
-Emit:
-        push ax
-        push bx
-        push bp
-        mov bx, 7
-        mov ah, 0x0e
-        cmp al, 10
-        jne .Pr
-        mov al, 13
-        int 0x10
-        mov bx, 7
-        mov ax, 0x0e0a
-.Pr:    int 0x10
-        pop bp
-        pop bx
-        pop ax
-        ret
-
-ReadKey:
-        push bx
-        mov bx, [InputText]
-        mov al, [bx]
-        and al, al
-        jz .Ret
-        cmp al, 'a'
-        jb .L
-        cmp al, 'z'
-        ja .L
-        and al, 0xdf
-.L:
-        inc bx
-        mov [InputText], bx
-.Ret:   pop bx
-        ret
 
 ReadWord:
 .SkipSpaces:
@@ -345,8 +484,52 @@ Comma:
         call DoComma
         jmp Next
 
-W_WORD:
+W_OPENFILE:
 dw W_COMMA
+db 9, 'OPEN-FILE'
+DoOpenFile:
+        dw $+2
+        pop ax
+        pop di
+        call OpenFile
+        push ax
+        jmp Next
+
+W_CLOSEFILE:
+dw W_OPENFILE
+db 10, 'CLOSE-FILE'
+DoCloseFile:
+        dw $+2
+        pop ax
+        call CloseFile
+        jmp Next
+
+W_READFILE:
+dw W_CLOSEFILE
+db 9, 'READ-FILE'
+DoReadFile:
+        dw $+2
+        pop ax
+        pop cx
+        pop di
+        call ReadFile
+        push ax
+        jmp Next
+
+W_WRITEFILE:
+dw W_READFILE
+db 10, 'WRITE-FILE'
+DoWriteFile:
+        dw $+2
+        pop ax
+        pop cx
+        pop di
+        call WriteFile
+        push ax
+        jmp Next
+
+W_WORD:
+dw W_WRITEFILE
 db 4, 'WORD'
 GetWord:
         dw $+2
@@ -940,8 +1123,35 @@ GetFLenmask:
         push ax
         jmp Next
 
-W_DSP:
+W_O_RDONLY:
 dw W_F_LENMASK
+db 8, 'O_RDONLY'
+GetORdOnly:
+        dw $+2
+        mov ax, O_RDONLY
+        push ax
+        jmp Next
+
+W_STDIN:
+dw W_O_RDONLY
+db 5, 'STDIN'
+GetStdin:
+        dw $+2
+        mov ax, STDIN_FILENO
+        push ax
+        jmp Next
+
+W_STDOUT:
+dw W_STDIN
+db 6, 'STDOUT'
+GetStdout:
+        dw $+2
+        mov ax, STDOUT_FILENO
+        push ax
+        jmp Next
+
+W_DSP:
+dw W_STDOUT
 db 3, 'DSP'
 GetDsp:
         dw $+2
@@ -954,11 +1164,7 @@ State:     dw 0
 Here:      dw Cells+RSIZE*2 ; R0
 Base:      dw 10
 
-InputText: dw InputData
-InputData:
-        incbin "std.fth"
-;        db '21 2 * EMIT'
-        db 0
-
+InputFile:  resw 1
+OutputFile: resw 1
 Cells:      resw NUM_CELLS
 WordBuffer: resb F_LENMASK+1
