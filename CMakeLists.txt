@@ -54,6 +54,15 @@ else()
         else()
             target_link_options(forth PRIVATE -nostdlib -static -Wl,--build-id=none)
         endif()
+
+        add_custom_command(
+            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/forthdos.com
+            COMMAND ${NASM_EXE} -f bin ${NASM_ARGS} forthdos.asm -o ${CMAKE_CURRENT_BINARY_DIR}/forthdos.com
+            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/forthdos.asm
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            )
+
+        add_custom_target(forthdos ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/forthdos.com)
     endif()
 endif()
 
