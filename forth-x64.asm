@@ -469,9 +469,9 @@ NATIVE MUL, "*"
         NEXT
 
 NATIVE DIVMOD, "/MOD"
-        xor rdx, rdx
         pop rbx
         pop rax
+        cqo
         idiv rbx
         push rdx
         push rax

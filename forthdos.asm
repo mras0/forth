@@ -13,8 +13,6 @@ F_LENMASK EQU 0x1f
 
 Main:
         cld
-        call PrintWords
-
         mov sp, Cells+NUM_CELLS*2 ; S0
         mov bp, Cells+RSIZE*2     ; R0
         mov si, .Start
@@ -67,7 +65,8 @@ Emit:
         jne .Pr
         mov al, 13
         int 0x10
-        mov al, 10
+        mov bx, 7
+        mov ax, 0x0e0a
 .Pr:    int 0x10
         pop bp
         pop bx
@@ -100,11 +99,13 @@ ReadWord:
         jbe .SkipSpaces
         cmp al, 0x5C ; '\'
         jne .DoRead
+.SkipToNL:
         call ReadKey
         and al, al
         jz .DoRead
         cmp al, 10
-        je .SkipSpaces
+        jne .SkipToNL
+        jmp .SkipSpaces
 .DoRead:
         mov di, WordBuffer
 .ReadLoop:
@@ -192,20 +193,23 @@ ConvertNumber:
         pop si
         ret
 .Err:
+InvalidWord:
         mov bx, .MsgInvalid
         call PutZString
         mov bx, WordBuffer
         call PutZString
         mov bx, .MsgInvalid2
         call PutZString
+        call PrintWords
         mov ax, 0x4c01
         int 0x21
 
-.MsgInvalid: db 10, 'Invalid number: "', 0
-.MsgInvalid2: db '"', 10, 0
+.MsgInvalid: db 13, 10, 'Invalid word: "', 0
+.MsgInvalid2: db '"', 13, 10, 0
 
 PrintWords:
         mov di, [Latest]
+        mov dx, 10 ; Limit count
 .Loop:
         and di, di
         jnz .NotDone
@@ -237,7 +241,8 @@ PrintWords:
         mov al, 10
         call Emit
         mov di, [di]
-        jmp .Loop
+        dec dx
+        jnz .Loop
 
 DoComma:
         mov di, [Here]
@@ -254,8 +259,18 @@ DoEmit:
         call Emit
         jmp Next
 
-W_EXIT:
+W_KEY:
 dw W_EMIT
+db 3, 'KEY'
+DoKey:
+        dw $+2
+        call ReadKey
+        xor ah, ah
+        push ax
+        jmp Next
+
+W_EXIT:
+dw W_KEY
 db 4, 'EXIT'
 Exit:
         dw $+2
@@ -271,8 +286,27 @@ Branch:
         add si, [si]
         jmp Next
 
-W_LIT:
+W_ZBRANCH:
 dw W_BRANCH
+db 7, '0BRANCH'
+ZBranch:
+        dw $+2
+        pop ax
+        test ax, ax
+        jz Branch+2
+        lodsw
+        jmp Next
+
+W_EXECUTE:
+dw W_ZBRANCH
+db 7, 'EXECUTE'
+Execute:
+        dw $+2
+        pop bx
+        jmp [bx]
+
+W_LIT:
+dw W_EXECUTE
 db 3, 'LIT'
 Lit:
         dw $+2
@@ -280,8 +314,30 @@ Lit:
         push ax
         jmp Next
 
-W_COMMA:
+W_LITSTRING:
 dw W_LIT
+db 9, 'LITSTRING'
+LitString:
+        dw $+2
+        lodsw
+        push si
+        push ax
+        add si, ax
+        jmp Next
+
+W_CHAR:
+dw W_LITSTRING
+db 4, 'CHAR'
+GetChar:
+        dw $+2
+        call ReadWord
+        xor ax, ax
+        mov al, [di]
+        push ax
+        jmp Next
+
+W_COMMA:
+dw W_CHAR
 db 1, ','
 Comma:
         dw $+2
@@ -319,8 +375,29 @@ Create:
         mov [Here], di
         jmp Next
 
-W_HIDDEN:
+W_FIND:
 dw W_CREATE
+db 4, 'FIND'
+Find:
+        dw $+2
+        pop cx
+        pop di
+        call FindWord
+        push bx
+        jmp Next
+
+W_CFA:
+dw W_FIND
+db 4, '>CFA'
+Cfa:
+        dw $+2
+        pop bx
+        call WordCFA
+        push bx
+        jmp Next
+
+W_HIDDEN:
+dw W_CFA
 db 6, 'HIDDEN'
 Hidden:
         dw $+2
@@ -328,8 +405,17 @@ Hidden:
         xor byte [bx+2], F_HIDDEN
         jmp Next
 
-W_LBRACKET:
+W_IMMEDIATE:
 dw W_HIDDEN
+db 9|F_IMMED, 'IMMEDIATE'
+Immediate:
+        dw $+2
+        mov bx, [Latest]
+        xor byte [bx+2], F_IMMED
+        jmp Next
+
+W_LBRACKET:
+dw W_IMMEDIATE
 db 1|F_IMMED, '['
 LBracket:
         dw $+2
@@ -343,9 +429,17 @@ RBracket:
         dw $+2
         mov byte [State], 1
         jmp Next
+W_TICK:
+dw W_RBRACKET
+db 1, 0x27 ; '
+Tick:
+        dw $+2
+        lodsw
+        push ax
+        jmp Next
 
 W_FETCH:
-dw W_RBRACKET
+dw W_TICK
 db 1, '@'
 Fetch:
         dw $+2
@@ -353,8 +447,308 @@ Fetch:
         push word [bx]
         jmp Next
 
-W_INTERPRET:
+W_STORE:
 dw W_FETCH
+db 1, '!'
+Store:
+        dw $+2
+        pop di
+        pop ax
+        stosw
+        jmp Next
+
+W_CFETCH:
+dw W_STORE
+db 2, 'C@'
+CFetch:
+        dw $+2
+        pop bx
+        xor ah, ah
+        mov al, [bx]
+        push ax
+        jmp Next
+
+W_CSTORE:
+dw W_CFETCH
+db 2, 'C!'
+CStore:
+        dw $+2
+        pop di
+        pop ax
+        stosb
+        jmp Next
+
+W_DSPFETCH:
+dw W_CSTORE
+db 4, 'DSP@'
+DspFetch:
+        dw $+2
+        mov ax, sp
+        push ax
+        jmp Next
+
+W_DSPSTORE:
+dw W_DSPFETCH
+db 4, 'DSP!'
+DspStore:
+        dw $+2
+        pop ax
+        mov sp, ax
+        jmp Next
+
+W_RSPFETCH:
+dw W_DSPSTORE
+db 4, 'RSP@'
+RspFetch:
+        dw $+2
+        push bp
+        jmp Next
+
+W_RSPSTORE:
+dw W_RSPFETCH
+db 4, 'RSP!'
+RspStore:
+        dw $+2
+        pop bp
+        jmp Next
+
+W_TOR:
+dw W_RSPSTORE
+db 2, '>R'
+ToR:
+        dw $+2
+        sub bp, 2
+        pop word [bp]
+        jmp Next
+
+W_FROMR:
+dw W_TOR
+db 2, 'R>'
+FromR:
+        dw $+2
+        push word [bp]
+        add bp, 2
+        jmp Next
+
+W_SWAP:
+dw W_FROMR
+db 4, 'SWAP'
+Swap:
+        dw $+2
+        pop ax
+        pop bx
+        push ax
+        push bx
+        jmp Next
+
+W_ROT:
+dw W_SWAP
+db 3, 'ROT'
+Rot:
+        dw $+2
+        pop cx
+        pop bx
+        pop ax
+        push bx
+        push cx
+        push ax
+        jmp Next
+
+W_ADD:
+dw W_ROT
+db 1, '+'
+Add:
+        dw $+2
+        pop bx
+        pop ax
+        add ax, bx
+        push ax
+        jmp Next
+
+W_SUB:
+dw W_ADD
+db 1, '-'
+Sub:
+        dw $+2
+        pop bx
+        pop ax
+        sub ax, bx
+        push ax
+        jmp Next
+
+W_MUL:
+dw W_SUB
+db 1, '*'
+Mul:
+        dw $+2
+        pop bx
+        pop ax
+        mul bx
+        push ax
+        jmp Next
+
+W_DIVMOD:
+dw W_MUL
+db 4, '/MOD'
+DivMod:
+        dw $+2
+        pop bx
+        pop ax
+        cwd
+        idiv bx
+        push dx
+        push ax
+        jmp Next
+
+W_UDIVMOD:
+dw W_DIVMOD
+db 5, 'U/MOD'
+UDivMod:
+        dw $+2
+        pop bx
+        pop ax
+        xor dx, dx
+        div bx
+        push dx
+        push ax
+        jmp Next
+
+W_AND:
+dw W_UDIVMOD
+db 3, 'AND'
+BAnd:
+        dw $+2
+        pop bx
+        pop ax
+        and ax, bx
+        push ax
+        jmp Next
+
+W_OR:
+dw W_AND
+db 2, 'OR'
+BOr:
+        dw $+2
+        pop bx
+        pop ax
+        or ax, bx
+        push ax
+        jmp Next
+
+W_XOR:
+dw W_OR
+db 3, 'XOR'
+BXor:
+        dw $+2
+        pop bx
+        pop ax
+        xor ax, bx
+        push ax
+        jmp Next
+
+W_INVERT:
+dw W_XOR
+db 6, 'INVERT'
+Invert:
+        dw $+2
+        mov bx, sp
+        not word [bx]
+        jmp Next
+
+W_ALIGNED:
+dw W_INVERT
+db 7, 'ALIGNED'
+Aligned:
+        dw $+2
+        jmp Next
+
+W_EQ:
+dw W_ALIGNED
+db 1, '='
+Eq:
+        dw $+2
+        pop bx
+        pop ax
+        xor cx, cx
+        cmp ax, bx
+        jne .P
+        not cx
+.P:     push cx
+        jmp Next
+
+W_NE:
+dw W_EQ
+db 2, '<>'
+Ne:
+        dw $+2
+        pop bx
+        pop ax
+        xor cx, cx
+        cmp ax, bx
+        je .P
+        not cx
+.P:     push cx
+        jmp Next
+
+W_LT:
+dw W_NE
+db 1, '<'
+Lt:
+        dw $+2
+        pop bx
+        pop ax
+        xor cx, cx
+        cmp ax, bx
+        jnl .P
+        not cx
+.P:     push cx
+        jmp Next
+
+W_LE:
+dw W_LT
+db 2, '<='
+Le:
+        dw $+2
+        pop bx
+        pop ax
+        xor cx, cx
+        cmp ax, bx
+        jg .P
+        not cx
+.P:     push cx
+        jmp Next
+
+W_GE:
+dw W_LE
+db 2, '>='
+Ge:
+        dw $+2
+        pop bx
+        pop ax
+        xor cx, cx
+        cmp ax, bx
+        jl .P
+        not cx
+.P:     push cx
+        jmp Next
+
+W_GT:
+dw W_GE
+db 1, '>'
+Gt:
+        dw $+2
+        pop bx
+        pop ax
+        xor cx, cx
+        cmp ax, bx
+        jng .P
+        not cx
+.P:     push cx
+        jmp Next
+
+
+W_INTERPRET:
+dw W_GT
 db 9, 'INTERPRET'
 Interpret:
         dw $+2
@@ -362,10 +756,10 @@ Interpret:
         call ReadWord
         and cx, cx
         jnz .NotDone
-        call PrintWords
         mov ax, 0x4c00
         int 0x21
 .NotDone:
+        %if 0
         mov al, [State]
         call PutHexByte
         mov al, ' '
@@ -374,6 +768,7 @@ Interpret:
         call PutZString
         mov al, 10
         call Emit
+        %endif
 
         push cx
         push di
@@ -390,6 +785,10 @@ Interpret:
         cmp byte [State], 0
         jz .ExecuteWord
         mov ax, bx
+        and ax, ax
+        jnz .CompileWord
+        jmp InvalidWord
+.CompileWord:
         call DoComma
         jmp .Loop
 .ExecuteWord:
@@ -417,7 +816,7 @@ dw W_INTERPRET
 db 4, 'QUIT'
 Quit:
         dw DoCol
-        ; dw Lit, R0, RSPSTORE
+        dw Lit, Cells+RSIZE*2, RspStore
         dw Interpret
         dw Branch, -4
 
@@ -442,13 +841,124 @@ SemiColon:
         dw LBracket
         dw Exit
 
-Latest:    dw W_SEMICOLON
+W_LATEST:
+dw W_SEMICOLON
+db 6, 'LATEST'
+GetLatest:
+        dw $+2
+        mov ax, Latest
+        push ax
+        jmp Next
+
+W_HERE:
+dw W_LATEST
+db 4, 'HERE'
+GetHere:
+        dw $+2
+        mov ax, Here
+        push ax
+        jmp Next
+
+W_STATE:
+dw W_HERE
+db 5, 'STATE'
+GetState:
+        dw $+2
+        mov ax, State
+        push ax
+        jmp Next
+
+W_BASE:
+dw W_STATE
+db 4, 'BASE'
+GetBase:
+        dw $+2
+        mov ax, Base
+        push ax
+        jmp Next
+
+W_CELLSIZE:
+dw W_BASE
+db 9, 'CELL-SIZE'
+GetCellSize:
+        dw $+2
+        mov ax, 2
+        push ax
+        jmp Next
+
+W_DOCOL:
+dw W_CELLSIZE
+db 5, 'DOCOL'
+DOCOL:
+        dw $+2
+        mov ax, DoCol
+        push ax
+        jmp Next
+
+W_S0:
+dw W_DOCOL
+db 2, 'S0'
+GetS0:
+        dw $+2
+        mov ax, Cells+NUM_CELLS*2 ; S0
+        push ax
+        jmp Next
+
+W_R0:
+dw W_S0
+db 2, 'R0'
+GetR0:
+        dw $+2
+        mov ax, Cells+RSIZE*2 ; R0
+        push ax
+        jmp Next
+
+W_F_HIDDEN:
+dw W_R0
+db 8, 'F_HIDDEN'
+GetFHidden:
+        dw $+2
+        mov ax, F_HIDDEN
+        push ax
+        jmp Next
+
+W_F_IMMED:
+dw W_F_HIDDEN
+db 7, 'F_IMMED'
+GetFImmed:
+        dw $+2
+        mov ax, F_IMMED
+        push ax
+        jmp Next
+
+W_F_LENMASK:
+dw W_F_IMMED
+db 9, 'F_LENMASK'
+GetFLenmask:
+        dw $+2
+        mov ax, F_LENMASK
+        push ax
+        jmp Next
+
+W_DSP:
+dw W_F_LENMASK
+db 3, 'DSP'
+GetDsp:
+        dw $+2
+        mov ax, 0
+        push ax
+        jmp Next
+
+Latest:    dw W_DSP
 State:     dw 0
 Here:      dw Cells+RSIZE*2 ; R0
 Base:      dw 10
 
-InputData: db '33 EMIT : STAR 42 EMIT ; STAR', 0
 InputText: dw InputData
+InputData:
+        incbin "std.fth"
+;        db '21 2 * EMIT'
+        db 0
 
 Cells:      resw NUM_CELLS
 WordBuffer: resb F_LENMASK+1

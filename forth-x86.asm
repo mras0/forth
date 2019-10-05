@@ -506,9 +506,9 @@ NATIVE MUL, "*"
 
 ; ( x y -- y%x y/x )
 NATIVE DIVMOD, "/MOD"
-        xor edx, edx
         pop ebx
         pop eax
+        cdq
         idiv ebx
         push edx
         push eax

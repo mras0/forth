@@ -58,7 +58,7 @@ else()
         add_custom_command(
             OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/forthdos.com
             COMMAND ${NASM_EXE} -f bin ${NASM_ARGS} forthdos.asm -o ${CMAKE_CURRENT_BINARY_DIR}/forthdos.com
-            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/forthdos.asm
+            DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/forthdos.asm ${CMAKE_CURRENT_SOURCE_DIR}/std.fth
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
             )
 
