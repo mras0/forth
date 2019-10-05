@@ -239,6 +239,12 @@ PrintWords:
         mov di, [di]
         jmp .Loop
 
+DoComma:
+        mov di, [Here]
+        stosw
+        mov [Here], di
+        ret
+
 W_EMIT:
 dw 0
 db 4, 'EMIT'
@@ -248,16 +254,107 @@ DoEmit:
         call Emit
         jmp Next
 
-W_BRANCH:
+W_EXIT:
 dw W_EMIT
+db 4, 'EXIT'
+Exit:
+        dw $+2
+        mov si, [bp]
+        add bp, 2
+        jmp Next
+
+W_BRANCH:
+dw W_EXIT
 db 6, 'BRANCH'
 Branch:
         dw $+2
         add si, [si]
         jmp Next
 
-W_INTERPRET:
+W_LIT:
 dw W_BRANCH
+db 3, 'LIT'
+Lit:
+        dw $+2
+        lodsw
+        push ax
+        jmp Next
+
+W_COMMA:
+dw W_LIT
+db 1, ','
+Comma:
+        dw $+2
+        pop ax
+        call DoComma
+        jmp Next
+
+W_WORD:
+dw W_COMMA
+db 4, 'WORD'
+GetWord:
+        dw $+2
+        call ReadWord
+        push di
+        push cx
+        jmp Next
+
+W_CREATE:
+dw W_WORD
+db 6, 'CREATE'
+Create:
+        dw $+2
+        pop cx
+        pop bx
+        mov di, [Here]
+        mov ax, [Latest]
+        mov [Latest], di
+        stosw
+        mov al, cl
+        stosb
+        push si
+        mov si, bx
+        rep movsb
+        pop si
+        mov [Here], di
+        jmp Next
+
+W_HIDDEN:
+dw W_CREATE
+db 6, 'HIDDEN'
+Hidden:
+        dw $+2
+        pop bx
+        xor byte [bx+2], F_HIDDEN
+        jmp Next
+
+W_LBRACKET:
+dw W_HIDDEN
+db 1|F_IMMED, '['
+LBracket:
+        dw $+2
+        mov byte [State], 0
+        jmp Next
+
+W_RBRACKET:
+dw W_LBRACKET
+db 1, ']'
+RBracket:
+        dw $+2
+        mov byte [State], 1
+        jmp Next
+
+W_FETCH:
+dw W_RBRACKET
+db 1, '@'
+Fetch:
+        dw $+2
+        pop bx
+        push word [bx]
+        jmp Next
+
+W_INTERPRET:
+dw W_FETCH
 db 9, 'INTERPRET'
 Interpret:
         dw $+2
@@ -265,9 +362,14 @@ Interpret:
         call ReadWord
         and cx, cx
         jnz .NotDone
+        call PrintWords
         mov ax, 0x4c00
         int 0x21
 .NotDone:
+        mov al, [State]
+        call PutHexByte
+        mov al, ' '
+        call Emit
         mov bx, di
         call PutZString
         mov al, 10
@@ -280,11 +382,27 @@ Interpret:
         pop cx
         and bx, bx
         jz .Number
+        test byte [bx+2], F_IMMED
+        pushf
         call WordCFA
+        popf
+        jnz .ExecuteWord
+        cmp byte [State], 0
+        jz .ExecuteWord
+        mov ax, bx
+        call DoComma
+        jmp .Loop
+.ExecuteWord:
         jmp [bx]
 .Number:
         call ConvertNumber
         push ax
+        cmp byte [State], 0
+        jz .Loop
+        mov ax, Lit
+        call DoComma
+        pop ax
+        call DoComma
         jmp .Loop
 
 DoCol:
@@ -303,10 +421,34 @@ Quit:
         dw Interpret
         dw Branch, -4
 
-InputData: db '42 EMIT HALT', 0
-InputText: dw InputData
-Latest:    dw W_QUIT
+W_COLON:
+dw W_QUIT
+db 1, ':'
+Colon:
+        dw DoCol
+        dw GetWord, Create
+        dw Lit, DoCol, Comma
+        dw Lit, Latest, Fetch, Hidden
+        dw RBracket
+        dw Exit
+
+W_SEMICOLON:
+dw W_COLON
+db 1|F_IMMED, ';'
+SemiColon:
+        dw DoCol
+        dw Lit, Exit, Comma
+        dw Lit, Latest, Fetch, Hidden
+        dw LBracket
+        dw Exit
+
+Latest:    dw W_SEMICOLON
+State:     dw 0
+Here:      dw Cells+RSIZE*2 ; R0
 Base:      dw 10
 
-WordBuffer: resw F_LENMASK+1
+InputData: db '33 EMIT : STAR 42 EMIT ; STAR', 0
+InputText: dw InputData
+
 Cells:      resw NUM_CELLS
+WordBuffer: resb F_LENMASK+1
