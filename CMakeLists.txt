@@ -88,6 +88,20 @@ if (CA65_EXE AND LD65_EXE)
     endif()
 endif()
 
+find_program(VASM_EXE vasmm68k_mot_win32)
+find_program(VLINK_EXE vlink)
+if (VASM_EXE AND VLINK_EXE)
+    message(STATUS "Can build Amiga version")
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/forth-amiga.exe
+        COMMAND ${VASM_EXE}  -phxass -x -Fhunk ${CMAKE_CURRENT_SOURCE_DIR}/forth-amiga.s -o ${CMAKE_CURRENT_BINARY_DIR}/forth-amiga.o
+        COMMAND ${VLINK_EXE} -b amigahunk -o ${CMAKE_CURRENT_BINARY_DIR}/forth-amiga.exe ${CMAKE_CURRENT_BINARY_DIR}/forth-amiga.o
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/forth-amiga.s ${CMAKE_CURRENT_SOURCE_DIR}/std.fth
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_custom_target(forth-amiga ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/forth-amiga.exe)
+endif()
+
 if (MSVC)
     set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT cforth)
 endif()
